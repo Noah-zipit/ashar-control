@@ -18,7 +18,14 @@ export async function POST(req: Request) {
     // Small constant-time cost is fine; do not reveal whether a password is set.
     return NextResponse.json({ error: "Wrong password." }, { status: 401 });
   }
-  const res = NextResponse.json({ ok: true });
+  const wantsToken =
+    typeof body === "object" &&
+    body !== null &&
+    "requestToken" in body &&
+    (body as { requestToken: unknown }).requestToken === true;
+  const res = NextResponse.json(
+    wantsToken ? { ok: true, token: signAdmin() } : { ok: true }
+  );
   res.cookies.set(COOKIE_NAME, signAdmin(), cookieOptions());
   return res;
 }

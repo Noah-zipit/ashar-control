@@ -2,11 +2,16 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { readState } from "@/lib/store";
 import Constellation from "@/components/Constellation";
+import AppBoot from "@/components/AppBoot";
 
 export const metadata = {
   title: "Control — Ashar's Projects",
   description: "Live constellation of every project, application and deadline.",
 };
+
+// The APK build (CAPACITOR_BUILD=1) is a static export: no server, so no
+// server state fetch. The client boot path reads the device cache instead.
+const IS_APP = process.env.CAPACITOR_BUILD === "1";
 
 async function DashboardBody() {
   await connection();
@@ -28,6 +33,7 @@ function LoadingShell() {
 }
 
 export default function Page() {
+  if (IS_APP) return <AppBoot />;
   return (
     <Suspense fallback={<LoadingShell />}>
       <DashboardBody />

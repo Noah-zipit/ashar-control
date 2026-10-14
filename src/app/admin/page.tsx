@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { SEED } from "@/lib/seed";
 import type { DashboardState, Project, ProjectStatus } from "@/lib/types";
+import { apiGetState, apiLogin, apiLogout, apiPutState } from "@/lib/api";
 
 const STATUSES: ProjectStatus[] = ["live", "active", "building", "waiting", "starts", "offline"];
 
@@ -19,29 +20,28 @@ export default function AdminPage() {
   const [openProject, setOpenProject] = useState<string | null>(null);
 
   const loadState = async () => {
-    const res = await fetch("/api/state", { cache: "no-store" });
-    if (res.ok) setState((await res.json()) as DashboardState);
+    try {
+      setState(await apiGetState());
+    } catch {
+      setFeedback({ ok: false, msg: "Could not reach the state server. Are you offline?" });
+    }
   };
 
   const login = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError("");
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
-    if (res.ok) {
+    const r = await apiLogin(password);
+    if (r.ok) {
       setAuthed(true);
       setPassword("");
       await loadState();
     } else {
-      setLoginError("Wrong password.");
+      setLoginError(r.error ?? "Wrong password.");
     }
   };
 
   const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await apiLogout();
     setAuthed(false);
     setState(null);
   };
@@ -52,23 +52,24 @@ export default function AdminPage() {
     setFeedback(null);
     const payload: DashboardState = {
       ...state,
+      notes: Array.isArray(state.notes) ? state.notes : [],
       updatedAt: new Date().toISOString(),
     };
-    const res = await fetch("/api/state", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const r = await apiPutState(payload);
     setSaving(false);
-    if (res.ok) {
+    if (r.ok) {
       setFeedback({ ok: true, msg: `Saved. Live within a minute.` });
       setState(payload);
-    } else if (res.status === 401) {
+      // keep the dashboard's local cache fresh on this device
+      try {
+        localStorage.setItem("ac_state_cache_v1", JSON.stringify(payload));
+        localStorage.removeItem("ac_pending_state_v1");
+      } catch { /* storage unavailable */ }
+    } else if (r.unauthorized) {
       setFeedback({ ok: false, msg: "Session expired. Log in again." });
       setAuthed(false);
     } else {
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      setFeedback({ ok: false, msg: j.error ?? "Save failed." });
+      setFeedback({ ok: false, msg: r.error ?? "Save failed." });
     }
   };
 

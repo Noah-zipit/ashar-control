@@ -46,6 +46,13 @@ export interface Overview {
   deadlineLine: string;
 }
 
+export interface Note {
+  id: string;
+  title: string;
+  body: string;
+  updatedAt: string;
+}
+
 export interface DashboardState {
   version: number;
   owner: { name: string; location: string; meta: string };
@@ -54,4 +61,5 @@ export interface DashboardState {
   overview: Overview;
   footer: string;
   updatedAt: string;
+  notes: Note[];
 }

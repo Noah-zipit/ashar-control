@@ -244,4 +244,5 @@ export const SEED: DashboardState = {
   },
   footer: "Data as of 14 Oct 2026 · Updated by Eviee as work moves",
   updatedAt: "2026-10-14T12:00:00+05:00",
+  notes: [],
 };

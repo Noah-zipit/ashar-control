@@ -16,7 +16,13 @@ export async function GET() {
 export async function PUT(req: Request) {
   await connection();
   const jar = await cookies();
-  if (!verifyAdminCookie(jar.get(COOKIE_NAME)?.value)) {
+  const bearer = req.headers.get("authorization");
+  const bearerOk =
+    bearer?.startsWith("Bearer ") &&
+    verifyAdminCookie(bearer.slice("Bearer ".length).trim());
+  // Cookie auth (web) or bearer token (APK, cross-origin where the
+  // same-site cookie cannot be used). Both carry the same HMAC.
+  if (!verifyAdminCookie(jar.get(COOKIE_NAME)?.value) && !bearerOk) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   let body: unknown;
@@ -38,7 +44,7 @@ export async function PUT(req: Request) {
       { status: 400 }
     );
   }
-  const result = await writeState(state);
+  const result = await writeState({ ...state, notes: Array.isArray(state.notes) ? state.notes : [] });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 502 });
   }

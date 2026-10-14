@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { AnimatePresence, motion } from "framer-motion";
-import type { DashboardState, Project, ProjectStatus } from "@/lib/types";
+import type { DashboardState, Note, Project, ProjectStatus } from "@/lib/types";
+import { useDashboard, type SyncStatus } from "@/lib/dashboard-data";
 import {
   buildLayout,
   placeLabels,
@@ -399,11 +400,13 @@ function Toolbar({
   onZoomOut,
   onReset,
   onAdmin,
+  onNotes,
 }: {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onReset: () => void;
   onAdmin: () => void;
+  onNotes: () => void;
 }) {
   return (
     <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded-full border border-white/10 bg-[#0a1416]/80 px-1 py-0.5 backdrop-blur-lg sm:gap-1 sm:px-1.5 sm:py-1">
@@ -428,6 +431,12 @@ function Toolbar({
           <path d="M4 8h10M18 8h2M4 16h2M10 16h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           <circle cx="16" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.6" />
           <circle cx="8" cy="16" r="2.2" stroke="currentColor" strokeWidth="1.6" />
+        </svg>
+      </IconBtn>
+      <IconBtn label="Notes" onClick={onNotes}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M6 3h9l4 4v14H6z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M9 11h6M9 14.5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       </IconBtn>
     </div>
@@ -461,13 +470,195 @@ function Clock() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Sync indicator + notes (offline-first)                              */
+/* ------------------------------------------------------------------ */
+
+const SYNC_LABEL: Record<SyncStatus, { text: string; color: string; pulse: boolean }> = {
+  synced: { text: "Synced", color: "#3ddcbb", pulse: false },
+  syncing: { text: "Syncing…", color: "#e8b96a", pulse: true },
+  pending: { text: "Saved on device", color: "#e8b96a", pulse: true },
+  offline: { text: "Offline — saved on device", color: "#e8b96a", pulse: true },
+  "needs-login": { text: "Log in to sync", color: "#e05c5c", pulse: false },
+};
+
+function SyncPill({ sync, onRetry }: { sync: SyncStatus; onRetry: () => void }) {
+  const meta = SYNC_LABEL[sync];
+  const clickable = sync !== "synced" && sync !== "syncing";
+  return (
+    <button
+      onClick={clickable ? onRetry : undefined}
+      title={clickable ? "Tap to retry sync" : "Data is in sync"}
+      className="pointer-events-auto flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-[#0a1416]/80 px-2 py-1.5 backdrop-blur-lg sm:px-3 sm:py-2"
+    >
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.pulse ? "animate-pulse" : ""}`}
+        style={{ background: meta.color }}
+      />
+      <span className="whitespace-nowrap font-mono text-[10px] text-teal-50 sm:text-[11px]">
+        {meta.text}
+      </span>
+    </button>
+  );
+}
+
+function NotesPanel({
+  notes,
+  onClose,
+  onAdd,
+  onUpdate,
+  onDelete,
+}: {
+  notes: Note[];
+  onClose: () => void;
+  onAdd: () => void;
+  onUpdate: (id: string, title: string, body: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const open = notes.find((n) => n.id === openId) ?? null;
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  useEffect(() => {
+    setTitle(open?.title ?? "");
+    setBody(open?.body ?? "");
+  }, [open?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveOpen = () => {
+    if (!open) return;
+    onUpdate(open.id, title.trim() || "Untitled", body);
+    setOpenId(null);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 40 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 40 }}
+      transition={{ type: "spring", stiffness: 320, damping: 30 }}
+      className="pointer-events-auto flex max-h-[70dvh] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0a1416]/95 shadow-2xl backdrop-blur-xl"
+    >
+      <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3">
+        <p className="text-sm font-semibold tracking-wide text-[#eef6f4]">
+          Notes{" "}
+          <span className="ml-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-teal-100/70">
+            {notes.length}
+          </span>
+        </p>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onAdd}
+            aria-label="New note"
+            title="New note"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-[#e8b96a] transition hover:bg-white/10"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button
+            onClick={onClose}
+            aria-label="Close notes"
+            title="Close notes"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-teal-100/70 transition hover:bg-white/10"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 py-2">
+        {notes.length === 0 && (
+          <p className="px-2 py-6 text-center text-sm text-white/40">
+            No notes yet. Tap + to add one — works offline.
+          </p>
+        )}
+        <ul className="space-y-1.5">
+          {notes
+            .slice()
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+            .map((n) => (
+              <li key={n.id}>
+                {openId === n.id ? (
+                  <div className="rounded-xl border border-[#e8b96a]/40 bg-white/[0.05] p-3">
+                    <input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder="Title"
+                      className="w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-[#eef6f4] placeholder:text-white/30 focus:border-[#e8b96a]/60 focus:outline-none"
+                    />
+                    <textarea
+                      value={body}
+                      onChange={(e) => setBody(e.target.value)}
+                      placeholder="Write…"
+                      rows={4}
+                      className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-[#eef6f4] placeholder:text-white/30 focus:border-[#e8b96a]/60 focus:outline-none"
+                    />
+                    <div className="mt-2 flex justify-end gap-2">
+                      <button
+                        onClick={() => setOpenId(null)}
+                        className="rounded-lg px-3 py-1.5 text-xs text-white/60 hover:bg-white/10"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={saveOpen}
+                        className="rounded-lg bg-[#e8b96a] px-3 py-1.5 text-xs font-semibold text-[#1a1206]"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setOpenId(n.id)}
+                    className="block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-left transition hover:border-white/15 hover:bg-white/[0.06]"
+                  >
+                    <p className="truncate text-sm font-medium text-[#eef6f4]">{n.title}</p>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-white/45">{n.body || "—"}</p>
+                    <p className="mt-1 font-mono text-[10px] text-white/30">
+                      {new Date(n.updatedAt).toLocaleString("en-GB", {
+                        day: "2-digit",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </button>
+                )}
+              </li>
+            ))}
+        </ul>
+      </div>
+      {openId && (
+        <div className="border-t border-white/[0.07] px-4 py-2">
+          <button
+            onClick={() => {
+              onDelete(openId);
+              setOpenId(null);
+            }}
+            className="text-xs text-red-400/80 hover:text-red-300"
+          >
+            Delete note
+          </button>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Main component                                                      */
 /* ------------------------------------------------------------------ */
 
 export default function Constellation({ initial }: { initial: DashboardState }) {
-  const [state] = useState(initial);
+  // Offline-first: `state` starts as `initial` (server state on web, cached
+  // state in the APK) and every edit goes through the sync queue.
+  const dash = useDashboard(initial);
+  const state = dash.state;
   const [selected, setSelected] = useState<{ type: "project" | "core"; id?: string } | null>(null);
   const [filter, setFilter] = useState("");
+  const [notesOpen, setNotesOpen] = useState(false);
   // which pink hub's purple projects are currently popped open (canvas reads the ref)
   const openHubIdRef = useRef<string | null>(null);
   const filterOpenedRef = useRef<string | null>(null);
@@ -1084,8 +1275,10 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
           onZoomOut={() => zoomBy(-0.35)}
           onReset={closeToMain}
           onAdmin={() => (window.location.href = "/admin")}
+          onNotes={() => setNotesOpen((v) => !v)}
         />
         <div className="flex shrink-0 items-center gap-1.5">
+          <SyncPill sync={dash.sync} onRetry={dash.retrySync} />
           <Clock />
           <div
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-display text-[11px] font-bold text-[#1a1206] sm:h-10 sm:w-10 sm:text-sm"
@@ -1153,6 +1346,47 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
             </svg>
           </button>
         </form>
+      </div>
+
+      {/* notes panel */}
+      <div className="pointer-events-none absolute inset-x-3 bottom-28 z-30 flex justify-center sm:inset-x-auto sm:bottom-24 sm:left-6 sm:top-[76px] sm:items-start sm:justify-start">
+        <AnimatePresence>
+          {notesOpen && (
+            <NotesPanel
+              key="notes"
+              notes={state.notes ?? []}
+              onClose={() => setNotesOpen(false)}
+              onAdd={() =>
+                dash.push((s) => ({
+                  ...s,
+                  notes: [
+                    ...(s.notes ?? []),
+                    {
+                      id: `n${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`,
+                      title: "Untitled",
+                      body: "",
+                      updatedAt: new Date().toISOString(),
+                    },
+                  ],
+                }))
+              }
+              onUpdate={(id, title, body) =>
+                dash.push((s) => ({
+                  ...s,
+                  notes: (s.notes ?? []).map((n) =>
+                    n.id === id ? { ...n, title, body, updatedAt: new Date().toISOString() } : n
+                  ),
+                }))
+              }
+              onDelete={(id) =>
+                dash.push((s) => ({
+                  ...s,
+                  notes: (s.notes ?? []).filter((n) => n.id !== id),
+                }))
+              }
+            />
+          )}
+        </AnimatePresence>
       </div>
 
       {/* detail / overview card */}
