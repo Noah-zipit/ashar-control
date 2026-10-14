@@ -44,6 +44,11 @@ export interface LayoutNode {
   detailIndex?: number;
   dim: number;
   dimTarget: number;
+  /** pop-up spring scale for project nodes (1 = fully shown) */
+  pop: number;
+  popV: number;
+  popTarget: number;
+  popDelay: number;
   /** seeded label side, 1 = right, -1 = left */
   side: 1 | -1;
 }
@@ -91,6 +96,10 @@ export function buildLayout(
     driftSpeed,
     dim: 1,
     dimTarget: 1,
+    pop: 1,
+    popV: 0,
+    popTarget: 1,
+    popDelay: 0,
     side: R() > 0.5 ? 1 : -1,
     ...extra,
   });
@@ -123,6 +132,11 @@ export function buildLayout(
           parent: hubId,
           projectId: p.id,
           hubId: hub.id,
+          // projects start hidden; they pop up when their hub is tapped
+          dim: 0,
+          dimTarget: 0,
+          pop: 0,
+          popTarget: 0,
         })
       );
       p.details.slice(0, 5).forEach((_, k) => {

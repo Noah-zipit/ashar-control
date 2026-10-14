@@ -191,8 +191,6 @@ interface Eng {
 }
 
 interface Ui {
-  view: "main" | "hub";
-  hubId: string | null;
   filter: string;
   reduced: boolean;
   state: DashboardState;
@@ -247,7 +245,7 @@ function DetailCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 16, scale: 0.98 }}
       transition={{ type: "spring", stiffness: 320, damping: 30 }}
-      className="pointer-events-auto w-full max-w-[420px] rounded-2xl border border-white/10 bg-[#0a1416]/90 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:absolute sm:bottom-24 sm:right-6"
+      className="pointer-events-auto max-h-[62dvh] w-full max-w-[420px] overflow-y-auto rounded-2xl border border-white/10 bg-[#0a1416]/90 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:max-h-full"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -310,7 +308,7 @@ function OverviewCard({ state, onClose }: { state: DashboardState; onClose: () =
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 16, scale: 0.98 }}
       transition={{ type: "spring", stiffness: 320, damping: 30 }}
-      className="pointer-events-auto w-full max-w-[440px] rounded-2xl border border-white/10 bg-[#0a1416]/90 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:absolute sm:bottom-24 sm:right-6"
+      className="pointer-events-auto max-h-[62dvh] w-full max-w-[440px] overflow-y-auto rounded-2xl border border-white/10 bg-[#0a1416]/90 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:max-h-full"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -465,21 +463,16 @@ function Clock() {
 
 export default function Constellation({ initial }: { initial: DashboardState }) {
   const [state] = useState(initial);
-  const [view, setView] = useState<"main" | "hub">("main");
-  const [hubId, setHubId] = useState<string | null>(null);
   const [selected, setSelected] = useState<{ type: "project" | "core"; id?: string } | null>(null);
   const [filter, setFilter] = useState("");
+  // which pink hub's purple projects are currently popped open (canvas reads the ref)
+  const openHubIdRef = useRef<string | null>(null);
+  const filterOpenedRef = useRef<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const eng = useRef<Eng | null>(null);
-  const ui = useRef<Ui>({
-    view: "main",
-    hubId: null,
-    filter: "",
-    reduced: false,
-    state: initial,
-  });
+  const ui = useRef<Ui>({ filter: "", reduced: false, state: initial });
   const tapRef = useRef<(cx: number, cy: number) => void>(() => {});
 
   const layout = useMemo(
@@ -518,11 +511,6 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
     let bestScore = Infinity;
     for (const n of e.nodes) {
       if (n.kind === "detail" || n.dimTarget < 0.2) continue;
-      if (ui.current.view === "hub" && ui.current.hubId) {
-        if (n.kind === "hub" && n.id !== `hub:${ui.current.hubId}`) continue;
-        if (n.kind === "project" && n.hubId !== ui.current.hubId) continue;
-        if (n.kind === "core") continue;
-      }
       const sx = (n.x - e.cam.x) * e.cam.zoom * fit + rect.width / 2;
       const sy = (n.y - e.cam.y) * e.cam.zoom * fit + rect.height / 2;
       const rPx = Math.max(24, n.r * e.cam.zoom * fit);
@@ -629,7 +617,7 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
         e.dash -= dt * 26;
         e.pulse += dt;
       }
-      const target = u.view === "hub" ? 0 : 1;
+      const target = 1;
       e.driftScale += (target - e.driftScale) * 0.06;
       const T = frozen ? 0 : e.time;
       for (const n of e.nodes) {
@@ -647,7 +635,23 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
           n.x = n.ax + Math.sin(T * n.driftSpeed + n.phase) * ds;
           n.y = n.ay + Math.cos(T * n.driftSpeed * 0.8 + n.phase * 1.7) * ds;
         }
-        n.dim += (n.dimTarget - n.dim) * 0.12;
+        if (n.kind === "project") {
+          // springy pop scale for the hub-tap pop-up
+          if (!frozen) {
+            if (n.popDelay > 0) n.popDelay -= dt;
+            else {
+              n.popV += ((n.popTarget - n.pop) * 200 - n.popV * 13) * dt;
+              n.pop += n.popV * dt;
+            }
+          } else {
+            n.pop = n.popTarget;
+            n.popV = 0;
+            n.popDelay = 0;
+          }
+          n.dim += (n.dimTarget - n.dim) * 0.32;
+        } else {
+          n.dim += (n.dimTarget - n.dim) * 0.12;
+        }
       }
     };
 
@@ -669,7 +673,10 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
         ) => {
           const pa = w2s(a.x, a.y);
           const pb = w2s(b.x, b.y);
-          const d = Math.min(a.dim, b.dim);
+          let d = Math.min(a.dim, b.dim);
+          // connector lines grow/shrink with the project's pop animation
+          if (a.kind === "project") d *= Math.min(1, Math.max(0, a.pop));
+          if (b.kind === "project") d *= Math.min(1, Math.max(0, b.pop));
           if (d < 0.12) return;
           arr.push({ x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y, d, ph: tealLine ? 0 : a.phase + b.phase });
         };
@@ -679,7 +686,7 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
           const hub = byIdRef.current.get(n.parent!);
           if (hub) add(teal, hub, n, true);
         }
-        if (n.kind === "detail" && u.view === "main") {
+        if (n.kind === "detail") {
           const p = byIdRef.current.get(n.parent!);
           if (p) add(teal, p, n, true);
         }
@@ -735,7 +742,6 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
         if (n.kind === "core") {
           drawCore(ctx, s.x, s.y, r, a, T);
         } else if (n.kind === "detail") {
-          if (u.view !== "main") continue;
           const rr = Math.max(4, r);
           glossyBubble(ctx, s.x, s.y, rr, PAL.detail, a);
           ctx.globalAlpha = a;
@@ -745,6 +751,10 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
           ctx.textBaseline = "middle";
           ctx.fillText(String((n.detailIndex ?? 0) + 1), s.x + rr + 2, s.y);
           ctx.globalAlpha = 1;
+        } else if (n.kind === "project") {
+          // pop-up spring scale: grows from the hub with a slight overshoot
+          const pc = Math.min(1.14, Math.max(0, n.pop));
+          glossyBubble(ctx, s.x, s.y, r * pc, PAL[n.kind], a);
         } else {
           glossyBubble(ctx, s.x, s.y, r, PAL[n.kind], a);
         }
@@ -764,11 +774,6 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
       for (const n of e.nodes) {
         if (n.kind === "detail") continue;
         if (n.dimTarget < 0.2) continue;
-        if (u.view === "hub" && u.hubId) {
-          if (n.kind === "hub" && n.id !== `hub:${u.hubId}`) continue;
-          if (n.kind === "project" && n.hubId !== u.hubId) continue;
-          if (n.kind === "core") continue;
-        }
         const s = w2s(n.x, n.y);
         const rPx = Math.max(2, n.r * s.s);
         anchors.set(n.id, { x: s.x, y: s.y, rPx });
@@ -785,14 +790,17 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
       add({ id: "__core", kind: "core", title: st.owner.name, sub: st.owner.meta, dim: 1 });
       for (const h of st.hubs)
         add({ id: `hub:${h.id}`, kind: "hub", title: h.name, sub: `${h.percent}%`, dim: 1 });
-      for (const p of st.projects)
+      for (const p of st.projects) {
+        const pn = byIdRef.current.get(`project:${p.id}`);
         add({
           id: `project:${p.id}`,
           kind: "project",
           title: p.name,
           dotColor: STATUS_COLOR[p.status],
-          dim: byIdRef.current.get(`project:${p.id}`)?.dim ?? 1,
+          // labels fade in with the pop animation
+          dim: (pn?.dim ?? 1) * Math.min(1, pn?.pop ?? 1),
         });
+      }
 
       const exclusions = mobile
         ? [
@@ -836,44 +844,6 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
       }
     };
 
-    const drawDrillDetails = () => {
-      const u = ui.current;
-      if (u.view !== "hub" || !u.hubId) return;
-      const mobile = W < 640;
-      ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
-      for (const p of u.state.projects.filter((x) => x.hubId === u.hubId)) {
-        const n = byIdRef.current.get(`project:${p.id}`);
-        if (!n || !p.details.length) continue;
-        const s = w2s(n.x, n.y);
-        const rPx = Math.max(2, n.r * s.s);
-        const fs = mobile ? 8.5 : 9.5;
-        ctx.font = MONO.replace("FONT", String(fs));
-        const chips = p.details.slice(0, 5);
-        const widths = chips.map((d) => Math.min(92, `${d}`.length * fs * 0.62 + 16));
-        const total = widths.reduce((a, b) => a + b, 0) + (chips.length - 1) * 5;
-        let cx = s.x - total / 2;
-        const cy = s.y + rPx + 14;
-        chips.forEach((d, i) => {
-          const label = `${i + 1} ${d}`.slice(0, 15);
-          const w = widths[i];
-          ctx.globalAlpha = n.dim;
-          ctx.fillStyle = "rgba(61,220,187,0.10)";
-          ctx.strokeStyle = "rgba(61,220,187,0.45)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          if (typeof ctx.roundRect === "function") ctx.roundRect(cx, cy, w, 16, 8);
-          else ctx.rect(cx, cy, w, 16);
-          ctx.fill();
-          ctx.stroke();
-          ctx.fillStyle = "#bfeee2";
-          ctx.fillText(label, cx + 7, cy + 12);
-          cx += w + 5;
-        });
-        ctx.globalAlpha = 1;
-      }
-    };
-
     let last = performance.now();
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
@@ -889,7 +859,6 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
       drawLinks();
       drawNodes();
       drawLabels();
-      drawDrillDetails();
     };
     raf = requestAnimationFrame(frame);
 
@@ -948,64 +917,85 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
     [byId, flyCamera]
   );
 
-  const openHub = useCallback(
-    (id: string) => {
-      setSelected(null);
-      setView("hub");
-      setHubId(id);
-      const e = eng.current;
-      if (!e) return;
-      const hubNode = byId.get(`hub:${id}`);
-      const projs = e.nodes.filter((n) => n.kind === "project" && n.hubId === id);
-      const cx = hubNode ? hubNode.bx : 0;
-      const cy = hubNode ? hubNode.by : 0;
-      projs.forEach((p, i) => {
-        const a = -2.62 + (projs.length > 1 ? (i / (projs.length - 1)) * 3.14 : 1.57);
-        p.tx = cx + Math.cos(a) * 230;
-        p.ty = cy + Math.sin(a) * 230;
-      });
-      if (hubNode) {
-        hubNode.tx = hubNode.bx;
-        hubNode.ty = hubNode.by;
+  /* Popping a hub's purple projects open: springy scale-in, staggered. */
+  const openCluster = useCallback((id: string) => {
+    setSelected(null);
+    openHubIdRef.current = id;
+    const e = eng.current;
+    if (!e) return;
+    const reduced = ui.current.reduced;
+    const projs = e.nodes.filter((n) => n.kind === "project" && n.hubId === id);
+    projs.forEach((p, i) => {
+      const already = p.popTarget === 1 && p.pop > 0.5;
+      p.dimTarget = 1;
+      if (reduced) {
+        p.pop = 1;
+        p.popV = 0;
+        p.popDelay = 0;
+      } else if (!already) {
+        p.pop = 0;
+        p.popV = 0;
+        p.popDelay = 0.04 + i * 0.06;
       }
-      for (const n of e.nodes) {
-        if (n.id === `hub:${id}`) n.dimTarget = 1;
-        else if (n.kind === "project" && n.hubId === id) n.dimTarget = 1;
-        else if (n.kind === "core") n.dimTarget = 0.05;
-        else n.dimTarget = 0.06;
+      p.popTarget = 1;
+    });
+    for (const n of e.nodes) {
+      if (n.kind === "hub") n.dimTarget = n.hubId === id ? 1 : 0.5;
+      else if (n.kind === "core") n.dimTarget = 0.8;
+      else if (n.kind === "project" && n.hubId !== id) {
+        n.dimTarget = 0;
+        n.popTarget = 0;
+        if (reduced) {
+          n.pop = 0;
+          n.popV = 0;
+        }
       }
-      flyCamera(cx, cy, Math.min(e.cam.zoom * 1.9, 4));
-    },
-    [byId, flyCamera]
-  );
+    }
+  }, []);
+
+  const closeCluster = useCallback(() => {
+    openHubIdRef.current = null;
+    const e = eng.current;
+    if (!e) return;
+    const reduced = ui.current.reduced;
+    const projs = e.nodes.filter((n) => n.kind === "project");
+    projs.forEach((p, i) => {
+      p.dimTarget = 0;
+      p.popTarget = 0;
+      if (reduced) {
+        p.pop = 0;
+        p.popV = 0;
+        p.popDelay = 0;
+      } else {
+        p.popDelay = (projs.length - 1 - i) * 0.03;
+      }
+    });
+    for (const n of e.nodes) {
+      if (n.kind === "hub" || n.kind === "core") n.dimTarget = 1;
+    }
+  }, []);
 
   const closeToMain = useCallback(() => {
     setSelected(null);
-    setView("main");
-    setHubId(null);
-    const e = eng.current;
-    if (!e) return;
-    for (const n of e.nodes) {
-      n.tx = n.bx;
-      n.ty = n.by;
-      n.dimTarget = 1;
-    }
+    closeCluster();
     flyCamera(0, 0, 1);
-  }, [flyCamera]);
+  }, [flyCamera, closeCluster]);
 
   const handleTap = useCallback(
     (cx: number, cy: number) => {
       const n = hitNode(cx, cy);
       if (!n) {
-        if (ui.current.view === "hub") closeToMain();
+        // empty space: tuck the open cluster away, or just close the card
+        if (openHubIdRef.current) closeCluster();
         else setSelected(null);
         return;
       }
       if (n.kind === "core") setSelected({ type: "core" });
-      else if (n.kind === "hub") openHub(n.hubId!);
+      else if (n.kind === "hub")
+        openHubIdRef.current === n.hubId ? closeCluster() : openCluster(n.hubId!);
       else if (n.kind === "project") selectProject(n.projectId!);
     },
-    [hitNode, openHub, selectProject, closeToMain]
+    [hitNode, openCluster, closeCluster, selectProject]
   );
   tapRef.current = handleTap;
 
@@ -1023,19 +1013,38 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
     ui.current.state = state;
   }, [state]);
   useEffect(() => {
-    ui.current.view = view;
-    ui.current.hubId = hubId;
-  }, [view, hubId]);
-  useEffect(() => {
     ui.current.filter = filter;
     const q = filter.trim().toLowerCase();
-    for (const n of eng.current?.nodes ?? []) {
-      if (n.kind === "project") {
-        const p = projectsById.get(n.projectId!);
-        n.dimTarget = !q || (p && p.name.toLowerCase().includes(q)) ? 1 : 0.12;
+    const nodes = eng.current?.nodes ?? [];
+    if (!q) {
+      // restore cluster visibility
+      for (const n of nodes) {
+        if (n.kind === "project") n.dimTarget = openHubIdRef.current === n.hubId ? 1 : 0;
+      }
+      if (filterOpenedRef.current) {
+        closeCluster();
+        filterOpenedRef.current = null;
+      }
+      return;
+    }
+    // matches pop into view even inside a closed hub: open that hub automatically
+    let needOpen: string | null = null;
+    for (const n of nodes) {
+      if (n.kind !== "project") continue;
+      const p = projectsById.get(n.projectId!);
+      const match = !!p && p.name.toLowerCase().includes(q);
+      if (match) {
+        n.dimTarget = 1;
+        if (openHubIdRef.current !== n.hubId) needOpen = n.hubId!;
+      } else {
+        n.dimTarget = 0;
       }
     }
-  }, [filter, projectsById]);
+    if (needOpen) {
+      openCluster(needOpen);
+      filterOpenedRef.current = needOpen;
+    }
+  }, [filter, projectsById, openCluster, closeCluster]);
 
   const hubsById = useMemo(() => {
     const m = new Map<string, string>();
@@ -1098,7 +1107,7 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
       </div>
 
       {/* bottom-right metrics + filter */}
-      <div className="absolute bottom-3 left-3 right-3 z-20 sm:bottom-6 sm:left-auto sm:right-6 sm:w-[380px]">
+      <div className="absolute bottom-3 left-3 right-3 z-20 sm:bottom-6 sm:left-auto sm:right-6 sm:w-[400px]">
         <div className="pointer-events-auto mb-2 grid grid-cols-4 gap-px overflow-hidden rounded-2xl border border-white/10 bg-[#0a1416]/85 backdrop-blur-lg">
           {[
             { l: state.overview.heroLabel, v: state.overview.heroValue },
@@ -1107,7 +1116,7 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
             { l: "Projects live", v: `${liveCount} / ${state.projects.length}` },
           ].map((m) => (
             <div key={m.l} className="px-3 py-2.5">
-              <p className="truncate text-[10px] uppercase tracking-wider text-teal-100/50">{m.l}</p>
+              <p className="text-[9px] uppercase leading-snug tracking-wider text-teal-100/50">{m.l}</p>
               <p className="mt-0.5 font-mono text-lg text-[#eef6f4]">{m.v}</p>
             </div>
           ))}
@@ -1141,23 +1150,8 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
         </form>
       </div>
 
-      {/* drill-in back control */}
-      {view === "hub" && (
-        <motion.button
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          onClick={closeToMain}
-          className="absolute left-3 top-20 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-[#0a1416]/85 px-4 py-2 text-sm text-teal-50 backdrop-blur-lg hover:bg-white/10 sm:left-4 sm:top-24"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-            <path d="M19 12H5M11 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          All projects
-        </motion.button>
-      )}
-
       {/* detail / overview card */}
-      <div className="pointer-events-none absolute inset-x-3 bottom-28 z-30 flex justify-center sm:inset-x-auto sm:bottom-auto sm:right-6 sm:top-1/2 sm:w-[440px] sm:-translate-y-1/2 sm:justify-end">
+      <div className="pointer-events-none absolute inset-x-3 bottom-28 z-30 flex justify-center sm:inset-x-auto sm:bottom-24 sm:right-6 sm:top-[76px] sm:w-[440px] sm:items-start sm:justify-end">
         <AnimatePresence mode="wait">
           {selected?.type === "project" && selectedProject && (
             <DetailCard
