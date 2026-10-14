@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import gsap from "gsap";
 import { AnimatePresence, motion } from "framer-motion";
 import * as THREE from "three";
@@ -23,6 +23,7 @@ interface SharedRefs {
   filter: string;
   reducedMotion: boolean;
   pulseSpeed: number;
+  arcTargets?: Map<string, THREE.Vector3>;
 }
 
 const STATUS_COLOR: Record<ProjectStatus, string> = {
@@ -194,8 +195,7 @@ function NodeMeshes({
         y += Math.cos(t * n.driftSpeed * 0.8 + n.phase * 1.7) * n.driftAmp;
       }
       // drill-in: hub view eases its projects into an arc (targets set below via shared)
-      const tgt = s["arcTargets"] as Map<string, THREE.Vector3> | undefined;
-      const arc = tgt?.get(n.id);
+      const arc = s.arcTargets?.get(n.id);
       if (arc) {
         x += (arc.x - x) * 0.08;
         y += (arc.y - y) * 0.08;
@@ -259,30 +259,30 @@ function NodeMeshes({
               scale={size}
               onClick={
                 isProject
-                  ? (e) => {
+                  ? (e: ThreeEvent<MouseEvent>) => {
                       e.stopPropagation();
                       onProjectClick(n.projectId!);
                     }
                   : isHub
-                    ? (e) => {
+                    ? (e: ThreeEvent<MouseEvent>) => {
                         e.stopPropagation();
                         onHubClick(n.id.replace("hub:", ""));
                       }
                     : isCore
-                      ? (e) => {
+                      ? (e: ThreeEvent<MouseEvent>) => {
                           e.stopPropagation();
                           onCoreClick();
                         }
                       : undefined
               }
-              onPointerOver={(e) => {
+              onPointerOver={(e: ThreeEvent<PointerEvent>) => {
                 if (isProject || isHub || isCore) document.body.style.cursor = "pointer";
               }}
               onPointerOut={() => (document.body.style.cursor = "auto")}
             >
               <sphereGeometry args={[22, 40, 40]} />
               <meshStandardMaterial
-                ref={(m) => {
+                ref={(m: THREE.MeshStandardMaterial | null) => {
                   if (m) mats.current.set(n.id, m);
                 }}
                 color={color}
@@ -956,7 +956,7 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
         const a = baseAngle + (projs.length > 1 ? -0.9 + (i / (projs.length - 1)) * 1.8 : 0);
         targets.set(`project:${p.id}`, new THREE.Vector3(Math.cos(a) * 210, Math.sin(a) * 210, 0));
       });
-      (shared.current as unknown as Record<string, unknown>)["arcTargets"] = targets;
+      shared.current.arcTargets = targets;
       // dim everything else
       for (const [nid] of shared.current.dim) shared.current.dim.set(nid, 0.08);
       shared.current.dim.set("__core", 0.05);
@@ -973,7 +973,7 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
     setHubId(null);
     shared.current.view = "main";
     shared.current.hubId = null;
-    (shared.current as unknown as Record<string, unknown>)["arcTargets"] = undefined;
+    shared.current.arcTargets = undefined;
     for (const [nid] of shared.current.dim) shared.current.dim.set(nid, 1);
     flyCamera(0, 0, fitZoom());
   }, [flyCamera]);

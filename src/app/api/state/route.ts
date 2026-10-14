@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "next/server"
+import { connection } from "next/server";
 import { readState, writeState } from "@/lib/store";
 import { COOKIE_NAME, verifyAdminCookie } from "@/lib/auth";
 import { cookies } from "next/headers";
 import type { DashboardState } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
-
 export async function GET() {
+  await connection();
   const state = await readState();
   return NextResponse.json(state, {
     headers: { "Cache-Control": "no-store" },
@@ -14,6 +14,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  await connection();
   const jar = await cookies();
   if (!verifyAdminCookie(jar.get(COOKIE_NAME)?.value)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });

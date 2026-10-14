@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "next/server"
+import { connection } from "next/server";
 import { COOKIE_NAME, cookieOptions, passwordOk, signAdmin } from "@/lib/auth";
 
-export const dynamic = "force-dynamic";
-
 export async function POST(req: Request) {
+  await connection();
   let body: unknown;
   try {
     body = await req.json();
