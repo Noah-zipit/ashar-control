@@ -189,6 +189,10 @@ interface Eng {
   pulse: number;
   time: number;
   driftScale: number;
+  /** inertia glide velocity, world units/sec */
+  vel: { x: number; y: number };
+  /** true while the user is actively dragging/pinching (pauses drift) */
+  interacting: boolean;
 }
 
 interface Ui {
@@ -586,7 +590,6 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
     }));
 
     const e: Eng = {
-      // Teal detail dots are not rendered (per owner: they read as noise).
       nodes: layout.filter((n) => n.kind !== "detail"),
       cam: { x: 0, y: 0, zoom: 1 },
       stars,
@@ -594,6 +597,8 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
       pulse: 0,
       time: R() * 10,
       driftScale: 1,
+      vel: { x: 0, y: 0 },
+      interacting: false,
     };
     eng.current = e;
     ui.current.reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -669,10 +674,23 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
       const target = 1;
       e.driftScale += (target - e.driftScale) * 0.06;
       const T = frozen ? 0 : e.time;
+      // inertia glide after a pan release (no glide under reduced motion)
+      if (!e.interacting && !frozen && (e.vel.x !== 0 || e.vel.y !== 0)) {
+        e.cam.x += e.vel.x * dt;
+        e.cam.y += e.vel.y * dt;
+        const decay = Math.exp(-dt * 4.2);
+        e.vel.x *= decay;
+        e.vel.y *= decay;
+        if (Math.hypot(e.vel.x, e.vel.y) < 2) {
+          e.vel.x = 0;
+          e.vel.y = 0;
+        }
+      }
       for (const n of e.nodes) {
         n.ax += (n.tx - n.ax) * 0.08;
         n.ay += (n.ty - n.ay) * 0.08;
-        const ds = e.driftScale * n.driftAmp * (frozen ? 0 : 1);
+        // ambient drift pauses while the user is actively dragging/pinching
+        const ds = e.interacting ? 0 : e.driftScale * n.driftAmp * (frozen ? 0 : 1);
         if (n.kind === "detail") {
           const p = byIdRef.current.get(n.parent!);
           if (p) {
@@ -911,33 +929,191 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
     };
     raf = requestAnimationFrame(frame);
 
-    /* tap / click + hover */
-    let down: { x: number; y: number; t: number } | null = null;
+    /* gesture navigation: pan (1 finger / mouse drag) with inertia,
+       pinch zoom (2 fingers), wheel zoom. Pointer Events throughout. */
+    const ZMIN = 0.4;
+    const ZMAX = 2.5;
+    const clampZ = (z: number) => Math.min(ZMAX, Math.max(ZMIN, z));
+    const pointers = new Map<number, { x: number; y: number }>();
+    const trail: { t: number; x: number; y: number }[] = [];
+    let gesture: {
+      startX: number;
+      startY: number;
+      startT: number;
+      touches: number;
+      panned: boolean;
+    } | null = null;
+    let pinch: {
+      d0: number;
+      z0: number;
+      wx: number;
+      wy: number;
+    } | null = null;
+    let lastSingle: { x: number; y: number } | null = null;
+
+    const grabGraph = () => {
+      // grabbing the graph wins over any in-flight camera tween / glide
+      gsap.killTweensOf(e.cam);
+      e.vel.x = 0;
+      e.vel.y = 0;
+      e.interacting = true;
+    };
+
     const onDown = (ev: PointerEvent) => {
-      down = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+      try {
+        canvas.setPointerCapture(ev.pointerId);
+      } catch {
+        /* noop */
+      }
+      grabGraph();
+      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pointers.size === 1) {
+        gesture = {
+          startX: ev.clientX,
+          startY: ev.clientY,
+          startT: performance.now(),
+          touches: 1,
+          panned: false,
+        };
+        lastSingle = { x: ev.clientX, y: ev.clientY };
+        trail.length = 0;
+        trail.push({ t: performance.now(), x: ev.clientX, y: ev.clientY });
+      } else if (pointers.size === 2) {
+        if (gesture) gesture.touches = 2;
+        const [a, b] = [...pointers.values()];
+        const d0 = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+        const fit = fitOf();
+        // world point under the pinch midpoint stays glued to the midpoint
+        const cx0 = (a.x + b.x) / 2;
+        const cy0 = (a.y + b.y) / 2;
+        const rect = canvas.getBoundingClientRect();
+        const wx = (cx0 - rect.left - W / 2) / (e.cam.zoom * fit) + e.cam.x;
+        const wy = (cy0 - rect.top - H / 2) / (e.cam.zoom * fit) + e.cam.y;
+        pinch = { d0, z0: e.cam.zoom, wx, wy };
+        lastSingle = null;
+      }
     };
-    const onUp = (ev: PointerEvent) => {
-      if (!down) return;
-      const dx = ev.clientX - down.x;
-      const dy = ev.clientY - down.y;
-      const quick = performance.now() - down.t < 500;
-      down = null;
-      if (dx * dx + dy * dy > 100 || !quick) return;
-      tapRef.current(ev.clientX, ev.clientY);
-    };
+
     const onMove = (ev: PointerEvent) => {
-      canvas.style.cursor = hitNode(ev.clientX, ev.clientY) ? "pointer" : "default";
+      const p = pointers.get(ev.pointerId);
+      if (!p) {
+        // hover cursor only when no buttons are pressed
+        if (ev.buttons === 0) {
+          canvas.style.cursor = hitNode(ev.clientX, ev.clientY) ? "pointer" : "default";
+        }
+        return;
+      }
+      p.x = ev.clientX;
+      p.y = ev.clientY;
+      const rect = canvas.getBoundingClientRect();
+      const fit = fitOf();
+      if (pointers.size === 1 && gesture && lastSingle) {
+        const dx = ev.clientX - lastSingle.x;
+        const dy = ev.clientY - lastSingle.y;
+        lastSingle = { x: ev.clientX, y: ev.clientY };
+        if (
+          Math.abs(ev.clientX - gesture.startX) + Math.abs(ev.clientY - gesture.startY) > 10
+        ) {
+          gesture.panned = true;
+        }
+        if (gesture.panned) {
+          e.cam.x -= dx / (e.cam.zoom * fit);
+          e.cam.y -= dy / (e.cam.zoom * fit);
+          const now = performance.now();
+          trail.push({ t: now, x: ev.clientX, y: ev.clientY });
+          while (trail.length > 6) trail.shift();
+        }
+      } else if (pointers.size === 2 && pinch) {
+        const [a, b] = [...pointers.values()];
+        const d = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+        const cx = (a.x + b.x) / 2 - rect.left;
+        const cy = (a.y + b.y) / 2 - rect.top;
+        const z1 = clampZ(pinch.z0 * (d / pinch.d0));
+        e.cam.zoom = z1;
+        e.cam.x = pinch.wx - (cx - W / 2) / (z1 * fit);
+        e.cam.y = pinch.wy - (cy - H / 2) / (z1 * fit);
+        if (gesture) gesture.panned = true;
+      }
     };
+
+    const endPointer = (ev: PointerEvent) => {
+      pointers.delete(ev.pointerId);
+      if (pointers.size === 1) {
+        // dropping from pinch back to one finger: re-anchor, no tap
+        const [q] = [...pointers.values()];
+        lastSingle = { x: q.x, y: q.y };
+        trail.length = 0;
+        pinch = null;
+        if (gesture) {
+          gesture.touches = 1;
+          gesture.panned = true;
+        }
+        return;
+      }
+      if (pointers.size > 1) return;
+      // last pointer lifted
+      pinch = null;
+      lastSingle = null;
+      e.interacting = false;
+      const g = gesture;
+      gesture = null;
+      if (!g) return;
+      const held = performance.now() - g.startT;
+      if (g.touches === 1 && !g.panned && held < 500) {
+        tapRef.current(ev.clientX, ev.clientY);
+        return;
+      }
+      // inertia glide from the recent pointer trail (skipped under reduced motion)
+      if (!ui.current.reduced && trail.length >= 2) {
+        const first = trail[0];
+        const last = trail[trail.length - 1];
+        const dtms = Math.max(16, last.t - first.t);
+        const fit = fitOf();
+        const k = 1000 / dtms / (e.cam.zoom * fit);
+        e.vel.x = (last.x - first.x) * k;
+        e.vel.y = (last.y - first.y) * k;
+        const sp = Math.hypot(e.vel.x, e.vel.y);
+        const max = 1400;
+        if (sp > max) {
+          e.vel.x *= max / sp;
+          e.vel.y *= max / sp;
+        }
+      }
+      trail.length = 0;
+    };
+
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      gsap.killTweensOf(e.cam);
+      e.vel.x = 0;
+      e.vel.y = 0;
+      const rect = canvas.getBoundingClientRect();
+      const px = ev.clientX - rect.left;
+      const py = ev.clientY - rect.top;
+      const fit = fitOf();
+      const scale = ev.deltaMode === 1 ? 16 : 1;
+      const z1 = clampZ(e.cam.zoom * Math.exp(-ev.deltaY * scale * 0.0016));
+      const wx = (px - W / 2) / (e.cam.zoom * fit) + e.cam.x;
+      const wy = (py - H / 2) / (e.cam.zoom * fit) + e.cam.y;
+      e.cam.zoom = z1;
+      e.cam.x = wx - (px - W / 2) / (z1 * fit);
+      e.cam.y = wy - (py - H / 2) / (z1 * fit);
+    };
+
     canvas.addEventListener("pointerdown", onDown);
-    canvas.addEventListener("pointerup", onUp);
     canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerup", endPointer);
+    canvas.addEventListener("pointercancel", endPointer);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
       canvas.removeEventListener("pointerdown", onDown);
-      canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerup", endPointer);
+      canvas.removeEventListener("pointercancel", endPointer);
+      canvas.removeEventListener("wheel", onWheel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hitNode]);
@@ -946,6 +1122,8 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
   const flyCamera = useCallback((x: number, y: number, zoom: number, instant = false) => {
     const e = eng.current;
     if (!e) return;
+    e.vel.x = 0;
+    e.vel.y = 0;
     if (instant || ui.current.reduced) {
       e.cam.x = x;
       e.cam.y = y;
@@ -961,7 +1139,7 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
       setSelected({ type: "project", id });
       const n = byId.get(`project:${id}`);
       const e = eng.current;
-      if (n && e) flyCamera(n.ax, n.ay, Math.min(e.cam.zoom * 1.6, e.cam.zoom + 0.9));
+      if (n && e) flyCamera(n.ax, n.ay, Math.min(2.5, e.cam.zoom * 1.6, e.cam.zoom + 0.9));
     },
     [byId, flyCamera]
   );
@@ -1052,7 +1230,7 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
     (d: number) => {
       const e = eng.current;
       if (!e) return;
-      flyCamera(e.cam.x, e.cam.y, Math.min(4, Math.max(0.35, e.cam.zoom + d)));
+      flyCamera(e.cam.x, e.cam.y, Math.min(2.5, Math.max(0.4, e.cam.zoom + d)));
     },
     [flyCamera]
   );
