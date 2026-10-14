@@ -3,3 +3,7 @@ node_modules/
 .vercel
 .env*
 *.log
+tsconfig.tsbuildinfo
+
+android-signing/
+android/
