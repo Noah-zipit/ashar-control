@@ -14,6 +14,11 @@ export const metadata: Metadata = {
   description: "Live constellation of every project, application and deadline.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {

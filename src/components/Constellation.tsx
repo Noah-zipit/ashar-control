@@ -387,7 +387,7 @@ function IconBtn({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="flex h-9 w-9 items-center justify-center rounded-full text-teal-100/70 transition hover:bg-white/10 hover:text-teal-50"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-teal-100/70 transition hover:bg-white/10 hover:text-teal-50 sm:h-9 sm:w-9"
     >
       {children}
     </button>
@@ -406,7 +406,7 @@ function Toolbar({
   onAdmin: () => void;
 }) {
   return (
-    <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-[#0a1416]/80 px-1.5 py-1 backdrop-blur-lg">
+    <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded-full border border-white/10 bg-[#0a1416]/80 px-1 py-0.5 backdrop-blur-lg sm:gap-1 sm:px-1.5 sm:py-1">
       <IconBtn label="Reset view" onClick={onReset}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
           <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
@@ -443,16 +443,19 @@ function Clock() {
           hour: "2-digit",
           minute: "2-digit",
           timeZone: "Asia/Karachi",
-        }).format(new Date()) + " PKT"
+        }).format(new Date())
       );
     f();
     const id = setInterval(f, 15000);
     return () => clearInterval(id);
   }, []);
   return (
-    <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-[#0a1416]/80 px-3.5 py-2 backdrop-blur-lg">
-      <span className="h-1.5 w-1.5 rounded-full bg-teal-300" />
-      <span className="font-mono text-[13px] text-teal-50">{now}</span>
+    <div className="pointer-events-auto hidden items-center gap-2 rounded-full border border-white/10 bg-[#0a1416]/80 px-2 py-1.5 backdrop-blur-lg min-[380px]:flex sm:px-3.5 sm:py-2">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teal-300" />
+      <span className="whitespace-nowrap font-mono text-[11px] text-teal-50 sm:text-[13px]">
+        {now}
+        <span className="max-[420px]:hidden"> PKT</span>
+      </span>
     </div>
   );
 }
@@ -571,7 +574,9 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
 
     const SANS = `600 FONTpx system-ui, -apple-system, "Segoe UI", sans-serif`;
     const MONO = `500 FONTpx ui-monospace, SFMono-Regular, Menlo, monospace`;
-    const fitOf = () => Math.min(W / 940, H / 860);
+    // fit with real margins: world extent is ~±460 x, ~±400 y; the extra
+    // denominator keeps bubbles AND their labels inside a phone viewport
+    const fitOf = () => Math.min(W / 1040, H / 940);
     const w2s = (x: number, y: number) => {
       const fit = fitOf();
       return {
@@ -1066,13 +1071,13 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
       </div>
 
       {/* top bar */}
-      <div className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex items-start justify-between gap-2 p-3 sm:p-4">
-        <div className="pointer-events-auto flex items-center gap-2.5 rounded-full border border-white/10 bg-[#0a1416]/80 py-2 pl-3 pr-4 backdrop-blur-lg">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <div className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex max-w-[100vw] items-center justify-between gap-1.5 overflow-hidden p-2 sm:gap-2 sm:p-4">
+        <div className="pointer-events-auto flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-[#0a1416]/80 py-1.5 pl-2 pr-2.5 backdrop-blur-lg sm:gap-2.5 sm:py-2 sm:pl-3 sm:pr-4">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden className="sm:h-[18px] sm:w-[18px]">
             <circle cx="12" cy="12" r="4" stroke="#e8b96a" strokeWidth="1.8" />
             <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="#e8b96a" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
-          <span className="text-sm font-semibold tracking-wide">Ashar — Control</span>
+          <span className="whitespace-nowrap text-[11px] font-semibold tracking-wide sm:text-sm">Ashar — Control</span>
         </div>
         <Toolbar
           onZoomIn={() => zoomBy(0.35)}
@@ -1080,10 +1085,10 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
           onReset={closeToMain}
           onAdmin={() => (window.location.href = "/admin")}
         />
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           <Clock />
           <div
-            className="flex h-10 w-10 items-center justify-center rounded-full font-display text-sm font-bold text-[#1a1206]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-display text-[11px] font-bold text-[#1a1206] sm:h-10 sm:w-10 sm:text-sm"
             style={{ background: "radial-gradient(circle at 32% 30%, #f4d49a, #c8913f)" }}
             aria-hidden
           >
@@ -1115,8 +1120,8 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
             { l: "Bots online", v: "2" },
             { l: "Projects live", v: `${liveCount} / ${state.projects.length}` },
           ].map((m) => (
-            <div key={m.l} className="px-3 py-2.5">
-              <p className="text-[9px] uppercase leading-snug tracking-wider text-teal-100/50">{m.l}</p>
+            <div key={m.l} className="min-w-0 px-2 py-2 sm:px-3 sm:py-2.5">
+              <p className="break-words text-[8.5px] uppercase leading-snug tracking-wide text-teal-100/50">{m.l}</p>
               <p className="mt-0.5 font-mono text-lg text-[#eef6f4]">{m.v}</p>
             </div>
           ))}
