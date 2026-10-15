@@ -5,6 +5,7 @@ import gsap from "gsap";
 import { AnimatePresence, motion } from "framer-motion";
 import type { DashboardState, Note, Project, ProjectStatus } from "@/lib/types";
 import { useDashboard, type SyncStatus } from "@/lib/dashboard-data";
+import { drawNebulaNode } from "@/lib/nebula-sprites";
 import {
   buildLayout,
   placeLabels,
@@ -39,101 +40,14 @@ const STATUS_LABEL: Record<ProjectStatus, string> = {
 /* Canvas palettes                                                      */
 /* ------------------------------------------------------------------ */
 
-interface BubblePal {
-  hi: string;
-  mid: string;
-  edge: string;
-  glow: string;
-}
-
-const PAL: Record<"core" | "hub" | "project" | "detail", BubblePal> = {
-  core: { hi: "#ffedc4", mid: "#e8b96a", edge: "#a86f22", glow: "rgba(232,185,106,0.28)" },
-  hub: { hi: "#ffd9e6", mid: "#e58aa5", edge: "#9c2f63", glow: "rgba(229,138,165,0.20)" },
-  project: { hi: "#d3cbff", mid: "#8b7cf6", edge: "#4538b8", glow: "rgba(139,124,246,0.22)" },
-  detail: { hi: "#c9fff2", mid: "#3ddcbb", edge: "#147a68", glow: "rgba(61,220,187,0.18)" },
-};
-
-function glossyBubble(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  r: number,
-  pal: BubblePal,
-  alpha: number
-) {
-  if (r <= 0 || alpha <= 0.01) return;
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  // outer glow
-  const glow = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 2.3);
-  glow.addColorStop(0, pal.glow);
-  glow.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(x, y, r * 2.3, 0, Math.PI * 2);
-  ctx.fill();
-  // body
-  const body = ctx.createRadialGradient(
-    x - r * 0.38,
-    y - r * 0.42,
-    r * 0.08,
-    x,
-    y,
-    r
-  );
-  body.addColorStop(0, pal.hi);
-  body.addColorStop(0.55, pal.mid);
-  body.addColorStop(1, pal.edge);
-  ctx.fillStyle = body;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fill();
-  // inner depth (darker lower-right)
-  const depth = ctx.createRadialGradient(
-    x + r * 0.3,
-    y + r * 0.35,
-    r * 0.2,
-    x,
-    y,
-    r
-  );
-  depth.addColorStop(0, "rgba(0,0,0,0)");
-  depth.addColorStop(1, "rgba(0,0,0,0.38)");
-  ctx.fillStyle = depth;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fill();
-  // specular highlight
-  const spec = ctx.createRadialGradient(
-    x - r * 0.38,
-    y - r * 0.46,
-    0,
-    x - r * 0.38,
-    y - r * 0.46,
-    r * 0.42
-  );
-  spec.addColorStop(0, "rgba(255,255,255,0.85)");
-  spec.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = spec;
-  ctx.beginPath();
-  ctx.ellipse(x - r * 0.38, y - r * 0.46, r * 0.34, r * 0.24, -0.5, 0, Math.PI * 2);
-  ctx.fill();
-  // rim light (lower-right arc)
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
-  ctx.lineWidth = Math.max(1, r * 0.06);
-  ctx.beginPath();
-  ctx.arc(x, y, r - ctx.lineWidth / 2, Math.PI * 0.25, Math.PI * 0.75);
-  ctx.stroke();
-  ctx.restore();
-}
-
 function drawCore(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   r: number,
   alpha: number,
-  time: number
+  time: number,
+  dpr: number
 ) {
   if (alpha <= 0.01) return;
   ctx.save();
@@ -167,8 +81,8 @@ function drawCore(
   ctx.arc(x, y, r * 1.52, a0, a0 + Math.PI * 0.7);
   ctx.stroke();
   ctx.restore();
-  // the golden orb itself
-  glossyBubble(ctx, x, y, r, PAL.core, alpha);
+  // the golden orb itself — Nebula Glass
+  drawNebulaNode(ctx, x, y, r, "core", alpha, dpr);
 }
 
 /* ------------------------------------------------------------------ */
@@ -807,10 +721,10 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
         const r = Math.max(2, n.r * s.s);
         const a = n.dim;
         if (n.kind === "core") {
-          drawCore(ctx, s.x, s.y, r, a, T);
+          drawCore(ctx, s.x, s.y, r, a, T, dpr);
         } else if (n.kind === "detail") {
           const rr = Math.max(4, r);
-          glossyBubble(ctx, s.x, s.y, rr, PAL.detail, a);
+          drawNebulaNode(ctx, s.x, s.y, rr, "detail", a, dpr);
           ctx.globalAlpha = a;
           ctx.font = MONO.replace("FONT", "7.5");
           ctx.fillStyle = "#bfeee2";
@@ -821,9 +735,9 @@ export default function Constellation({ initial }: { initial: DashboardState }) 
         } else if (n.kind === "project") {
           // pop-up spring scale: grows from the hub with a slight overshoot
           const pc = Math.min(1.14, Math.max(0, n.pop));
-          glossyBubble(ctx, s.x, s.y, r * pc, PAL[n.kind], a);
+          drawNebulaNode(ctx, s.x, s.y, r * pc, "project", a, dpr);
         } else {
-          glossyBubble(ctx, s.x, s.y, r, PAL[n.kind], a);
+          drawNebulaNode(ctx, s.x, s.y, r, "hub", a, dpr);
         }
       }
     };
