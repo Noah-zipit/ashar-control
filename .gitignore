@@ -7,3 +7,6 @@ tsconfig.tsbuildinfo
 
 android-signing/
 android/
+
+# Capacitor static export (CAPACITOR_BUILD=1 npm run build)
+out/
