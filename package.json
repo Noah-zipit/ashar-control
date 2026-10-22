@@ -27,5 +27,14 @@
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "description": "Ashar Control — a personal dashboard that renders projects, goals and notes as an interactive constellation graph. Next.js 16 + canvas 2D, installable PWA.",
+  "author": "Ashar Qaisar",
+  "keywords": [
+    "dashboard",
+    "constellation",
+    "nextjs",
+    "pwa",
+    "personal"
+  ]
 }
