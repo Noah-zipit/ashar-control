@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ashar Control
 
-## Getting Started
+A personal control dashboard that renders projects, goals and notes as an
+interactive constellation graph on a canvas — "Nebula Glass" nodes you can
+drag, open and edit, instead of a table of cards.
 
-First, run the development server:
+**Live:** https://ashar-control.vercel.app
+
+## What's inside
+
+- `src/components/Constellation.tsx` — the canvas-2D constellation view
+  (custom graph layout in `src/lib/graph-layout.ts`)
+- `src/lib/` — types, store, seed data and dashboard data, plus the API
+  client (`src/lib/api.ts`)
+- `src/app/notes` — notes view
+- `src/app/admin` — password-gated admin for editing dashboard state
+- `src/app/api` — `auth` and `state` routes backing the dashboard
+- Installable PWA (service worker registered from `src/app/sw-register.tsx`)
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+```
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Built with Next.js 16, React and TypeScript.
